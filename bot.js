@@ -21,13 +21,10 @@ const yt = new Youtube(ytKey);
 let isPlaying = false; //check if the bot is playing
 let fromSkip = false; //check if the end song function is called by the skip command
 let search = false; //check if the music added isn't a link
-let csMode = false;
 let conn; //saves the bot connection to the VoiceChannel
 let songs; //saves the results of the search
 let searchTimer; //saves the setTimeout of the search to be deleted
 let discTimer; //saves the setTimeout of the disconnect to be deleted
-let csTimer; //saves the setInterval of the csMode to be deleted
-let steamIDs = []; //saves the steam ID of who's in the VoiceChannel
 let queuePages = [];
 let totalPages; //saves the number of pages in the queue embed
 let currentPage = 1; //the page the user is in the queue
@@ -123,11 +120,10 @@ function showQueue(msg)
 	{
 		let count = 1;//counts in which song per page it is
 		//embed things
-		let embed = new Discord.RichEmbed();
+		let embed = new Discord.MessageEmbed();
 		embed.setTitle("Fila:");
 		embed.setDescription(`Número de músicas na fila: **${server.queue.length - 1}** | **${prefix}fila <número da música>** para seleciona-la.`);
 		embed.setColor([221, 76, 7]);
-		embed.addField(`Modo CS: **${csMode ? "ativado" : "desativado"}**.`, `**${prefix}cs** <**0**-off|**1**-on>.`);
 		embed.setFooter(`Página ${i+1} de ${totalPages}.`);
 		Promise.all(server.promises)
 			.then(info => {
@@ -164,58 +160,67 @@ function arrayShift()
 }
 
 //add the music to the queue
-function add(link, msg, check = true)
+async function add(link, msg, promise, musicTitle, sendEmbed = true)
 {
 	server.queue.push(link);
 	server.nickname.push(msg.member.nickname);
 	server.username.push(msg.author.username);
-	if (check)//checks if is need to push the promises and name of the song
+	server.promises.push(promise);
+
+	if (sendEmbed)//checks if needs to push the promises and name of the song
 	{	
-		server.promises.push(YTDL.getInfo(link, (err, info) => {
-			if (err)
-			{
-				console.error(err);
-				return;
-			}
-			server.musicName.push(info.title);
-			{
-				//embed saying the music was added
-				let embed = new Discord.RichEmbed();
-				embed.setTitle(`Música adicionada:`);
-				embed.setDescription(`Modo CS: **${csMode ? "ativado" : "desativado"}**.`);
-				embed.setColor([221, 76, 7]);
-				let desc = `Adicionado por: **${server.username[server.queue.length - 1]}**.`;
-				embed.addField(`Adicionado com sucesso: **${info.title}**.`, desc);
-				msg.channel.send(embed);
-			}
-		}));
+		let info = await YTDL.getInfo(link);
+		let title = info.videoDetails.title;
+		server.musicName.push(title);
+
+		//embed saying the music was added
+		let embed = new Discord.MessageEmbed();
+		embed.setTitle(`Música adicionada:`);
+		embed.setColor([221, 76, 7]);
+		//let desc = `Adicionado por: **${server.username[server.queue.length - 1]}**.`;
+		let desc = `Adicionado por: **${msg.author.username}**.`;
+		embed.addField(`Adicionado com sucesso: **${title}**.`, desc);
+		msg.channel.send(embed);
 	}
+	else
+		server.musicName.push(musicTitle);
 }
 
 //makes the bot join in the VoiceChannel
-function join(msg, check = false, len = -1)
+function join(msg)
 {
-	if (msg.member.voiceChannel)//checks if the user who sent the message it is in a voice channel
+	if (msg.member.voice.channel && !isPlaying)
 	{
-		msg.member.voiceChannel.join()
+		msg.member.voice.channel.join()
 		.then(connection => {
 			conn = connection;
-			if (check)//checks if the join came from the playlist
-			{
-				if (!isPlaying && server.queue.length == len)//start to play if the queue lenght is iqual to the playlist length and is not playing
-				{
-					clearTimeout(discTimer);//stops the auto disconnection
-					play(connection, msg);
-				}
-			}
-			else if (server.queue.length == 1)//just call the play function one time if already have one music on the server
-			{
-				clearTimeout(discTimer);//stops the auto disconnection
-				play(connection, msg);
-			}
+			clearTimeout(discTimer);//stops the auto disconnection
+			play(connection, msg);
 		})
 		.catch(err => console.error(err));
 	}
+	
+	// if (msg.member.voice.channel)//checks if the user who sent the message it is in a voice channel
+	// {
+	// 	msg.member.voice.channel.join()
+	// 	.then(connection => {
+	// 		conn = connection;
+	// 		if (fromPlaylist)//checks if the join came from the playlist
+	// 		{
+	// 			if (!isPlaying && server.queue.length == len)//start to play if the queue length is iqual to the playlist length and is not playing
+	// 			{
+	// 				clearTimeout(discTimer);//stops the auto disconnection
+	// 				play(connection, msg);
+	// 			}
+	// 		}
+	// 		else if (server.queue.length == 1)//just call the play function one time if already have one music on the server queue
+	// 		{
+	// 			clearTimeout(discTimer);//stops the auto disconnection
+	// 			play(connection, msg);
+	// 		}
+	// 	})
+	// 	.catch(err => console.error(err));
+	// }
 }
 
 //check if all the search results are videos
@@ -234,11 +239,11 @@ function checkSearchResults()
 
 //play the music and check the ends of the music
 function play(connection, msg)
-{	
+{
 	//play part
 	if (!isPlaying)
 	{		
-		server.dispatcher = connection.playStream(YTDL(server.queue[0], {filter: "audioonly"}));
+		server.dispatcher = connection.play(YTDL(server.queue[0], {filter: "audioonly"}));
 		isPlaying = true;
 	}
 
@@ -256,9 +261,9 @@ function play(connection, msg)
 			{
 				//auto disconnection: 1hr timeout
 				discTimer = setTimeout(() => {
-					if (msg.guild.voiceConnection) 
+					if (msg.guild.voice.connection) 
 					{
-						msg.guild.voiceConnection.disconnect();
+						msg.guild.voice.connection.disconnect();
 					}
 				}, 1000 * 60 * 60);
 			}
@@ -269,15 +274,9 @@ function play(connection, msg)
 //checks if the user who sent the message it is in the same voice channel as the bot
 function sameVoiceChannel(msg)
 {
-	let membersOnTheVoice = getBotVoiceChannel();
-	for (let i = 0; i < membersOnTheVoice.length; i++)
-	{
-		if (msg.author.username == membersOnTheVoice[i].user.username) 
-		{
-			return true;
-		}
-	}
-	return false;
+	let botChannelID = msg.guild.voice.channelID;
+	let userChannelID = msg.member.voice.channelID;
+	return botChannelID == userChannelID;
 }
 
 //check if the bot is ready
@@ -285,14 +284,11 @@ client.on('ready', () => {
 	console.log("Started!!");
 })
 
-client.on('message', msg => {
+client.on('message', async (msg) => {
 	if (!msg.author.equals(client.user))//check if the user who sent the message is not the bot
 	{			
-		
-
 		if (msg.content.startsWith(prefix))
 		{
-			
 			let cont = msg.content.split(" ");//split the content by spaces
 			while (cont[1] == '') //remove all the blanks spaces between the cont[0] and cont[1]
 			{
@@ -314,15 +310,12 @@ client.on('message', msg => {
 						msg.channel.send(`Valor inserido deve estar entre 1 e ${songs.length}.`);
 						return;
 					}
-					server.promises.push(songs[cont[1] - 1]);
-					server.musicName.push(songs[cont[1] - 1].title);
 					let link = `https://www.youtube.com/watch?v=${songs[cont[1] - 1].id}`;
-					add(link, msg, false);
+					add(link, msg, songs[cont[1] - 1], songs[cont[1] - 1].title, false);
 					join(msg);
 					{
-						let embed = new Discord.RichEmbed();
+						let embed = new Discord.MessageEmbed();
 						embed.setTitle(`Música adicionada:`);
-						embed.setDescription(`Modo CS: **${csMode ? "ativado" : "desativado"}**.`);
 						embed.setColor([221, 76, 7]);
 						let desc = `Adicionado por: **${server.username[server.queue.length - 1]}**.`;
 						embed.addField(`**#${cont[1]}** Adicionado com sucesso: **${songs[cont[1] - 1].title}**.`, desc);
@@ -350,7 +343,7 @@ client.on('message', msg => {
 			switch (cont[0].toLowerCase())
 			{
 				case `${prefix}play`:
-					if (!msg.member.voiceChannel)
+					if (!msg.member.voice.channel)
 					{
 						msg.reply("Você precisa estar em um canal.");
 						return;
@@ -376,15 +369,12 @@ client.on('message', msg => {
 									.then(videos => {
 										for (let i = 0; i < videos.length; i++)
 										{
-											server.promises.push(videos[i]);
-											server.musicName.push(videos[i].title);
 											let link = `https://www.youtube.com/watch?v=${videos[i].id}`;
-											add(link, msg, false);
+											add(link, msg, videos[i], videos[i].title, false);
 										}
 										{
-											let embed = new Discord.RichEmbed();
+											let embed = new Discord.MessageEmbed();
 											embed.setTitle(`Músicas da playlist adicionadas:`);
-											embed.setDescription(`Modo CS: **${csMode ? "ativado" : "desativado"}**.`);
 											embed.setColor([221, 76, 7]);
 											let desc = `Adicionadas por: **${msg.author.username}**.`;
 											embed.addField(`**${videos.length}** músicas adicionadas com sucesso.`, desc);
@@ -399,7 +389,7 @@ client.on('message', msg => {
 							}
 							else //normal links
 							{
-								add(cont[1], msg);
+								add(cont[1], msg, null, null);
 								join(msg);
 							}
 						}
@@ -421,10 +411,11 @@ client.on('message', msg => {
 								str += " ";
 							}
 						}
+
 						yt.searchVideos(str, 5)
 							.then(results => {
 								songs = results;
-								let embed = new Discord.RichEmbed();
+								let embed = new Discord.MessageEmbed();
 								embed.setTitle(`Opções:`);
 								embed.setDescription(`Como usar: **${prefix}play <número da opção>** | Para cancelar(depois de 1min a seleção será cancelada): **${prefix}cancel** .`);
 								embed.setColor([221, 76, 7]);
@@ -450,22 +441,20 @@ client.on('message', msg => {
 								msg.channel.send("Nenhum video encontrado.");
 							});
 					}
-
 					break;
 
 				case `${prefix}stop`:
-					if (msg.guild.voiceConnection) 
+					if (msg.guild.voice) 
 					{
-						if (sameVoiceChannel(msg))
+						if(sameVoiceChannel(msg))
 						{
 							//stop
 							fromSkip = false;
 							isPlaying = false;
-							csMode = false;
 							clearTimeout(discTimer);
 							clearTimeout(searchTimer);
-							clearInterval(csTimer);
-							msg.guild.voiceConnection.disconnect();
+							msg.guild.voice.connection.disconnect();
+
 							//clear the server
 							let len = server.queue.length;
 							for (let i = 0; i < len; i++) 
@@ -473,6 +462,7 @@ client.on('message', msg => {
 								arrayShift();
 							}
 							queuePages = [];
+							currentPage = 1
 							
 							msg.channel.send(`Música parada, modo CS **desativado** e fila esvaziada: **${len}** músicas removidas.`);
 							return;
@@ -683,7 +673,7 @@ client.on('message', msg => {
 					}
 
 					{
-						let embed = new Discord.RichEmbed();
+						let embed = new Discord.MessageEmbed();
 						embed.setTitle(`Tocando:`);
 						embed.setColor([221, 76, 7]);
 						let desc = `Adicionado por: **${server.username[0]}**.`;
@@ -696,117 +686,9 @@ client.on('message', msg => {
 					msg.channel.send(`O comando **${prefix}cancel** so esta disponivel na seleção de músicas.`);
 					break;
 
-				case `${prefix}cs`:
-				{
-					if (!cont[1])
-					{
-						{
-							let embed = new Discord.RichEmbed();
-							embed.setTitle(`Modo CS:`);
-							embed.setColor([221, 76, 7]);
-							embed.addField(`Está **${csMode ? "ativado" : "desativado"}**.`, `Como usar: **${prefix}cs**  **0** - desativar | **1** - ativar.`);
-							msg.channel.send(embed);
-						}
-						return;
-					}
-					if (cont[1] != "0" && cont[1] != "1")
-					{
-						msg.channel.send("O valor inserido dever ser **0** - desativar | **1** - ativar.");
-						return;
-					}
-					if (cont[1] == "0")
-					{
-						csMode = false;
-						msg.channel.send("O modo CS foi **desativado**.");
-						clearInterval(csTimer);
-						return;
-					}
-					if (cont[1] == "1")
-					{
-						if (csMode)
-						{
-							msg.channel.send("O modo CS já está **ativado**.");
-							return;
-						}
-						csMode = true;
-						msg.channel.send("O modo CS foi **ativado**.");
-						//Creates a interval of 10sec
-						csTimer = setInterval(() => {
-							if (isPlaying)
-							{
-								let members = getBotVoiceChannel()
-								if (!members)
-								{
-									return;
-								}
-								for (let i = 0; i < members.length; i++)
-								{
-									//Get the steam id of each user in the voice channel
-									switch (members[i].user.username) {
-										case "gb09":
-											steamIDs.push(cfg.jorgeID);
-											break;
-										case "japa":
-											steamIDs.push(cfg.japaID);
-											break;
-										case "MuriloDorta":
-											steamIDs.push(cfg.muriloID);
-											break;
-										case "Magliano":
-											steamIDs.push(cfg.pedroID);
-											break;
-										case "Jack Frost":
-											steamIDs.push(cfg.brunoID);
-											break;
-										case "henrique almeida":
-											steamIDs.push(cfg.almeidaID);
-											break;
-										case "Higuchi":
-											steamIDs.push(cfg.daviID);
-											break;
-										case "Hugo":
-											steamIDs.push(cfg.hugoID);
-											break;
-										case "Dekihi":
-											steamIDs.push(cfg.viniID);
-											break;
-										default:
-											break;
-									}
-								}
-								//run through each id in the VoiceChannel and check if the user is playing CS:GO
-								for (let i = 0; i < steamIDs.length; i++)
-								{
-									let steamAPI = `http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${steamKey}&steamids=${steamIDs[i]}`;
-									request(steamAPI, { json: true }, (err, res, body) => {
-										if (err)
-										{
-											return console.error(err);
-										}
-										if (body.response.players[0].gameid)
-										{
-											if (body.response.players[0].gameid == "730")
-											{
-												if (isPlaying)
-												{
-													isPlaying = false;
-													server.dispatcher.pause();
-													msg.channel.send(`Musica interrompida (devido ao **modo CS**): **${server.musicName[0]}**.`);
-												}
-											}
-										}
-										steamIDs.shift();
-									});
-								}
-							}
-						}, 1000 * 10);
-					}
-					break;
-				}
-
 				case `${prefix}help`:
 					{
-						let embed = new Discord.RichEmbed();
+						let embed = new Discord.MessageEmbed();
 						embed.setTitle(`Ajuda:`);
 						embed.setColor([221, 76, 7]);
 						embed.addField(`${prefix}cs:`, `Como usar: **${prefix}cs** | **${prefix}cs <0-off|1-on>**.`);
@@ -844,40 +726,38 @@ client.on('message', msg => {
 });
 
 //reaction added
-client.on('messageReactionAdd', react => { 
-	let arr = react.users.array();
-	if (arr[0].id == botID)//check if the reaction came from the message of the bot
+client.on('messageReactionAdd', async (react) => { 
+	let collection = await react.users.fetch();
+	let arr = collection.array();
+	if (arr[0].id != botID)//check if the reaction came from the message of the bot
 	{
-		if (arr[1])//checks if reaction was made by a user
+		if (react.emoji.name == '⏩')//page up
 		{
-			if (react.emoji.name == '⏩')//page up
+			if (currentPage == totalPages)
 			{
-				if (currentPage == totalPages)
-				{
-					return;
-				}
-				currentPage++;
-				react.message.edit(queuePages[currentPage - 1]);//edit the message
+				return;
 			}
-			if (react.emoji.name == '⏪')//page down
+			currentPage++;
+			react.message.edit(queuePages[currentPage - 1]);//edit the message
+		}
+		if (react.emoji.name == '⏪')//page down
+		{
+			if (currentPage == 1)
 			{
-				if (currentPage == 1)
-				{
-					return;
-				}
-				currentPage--;
-				react.message.edit(queuePages[currentPage - 1]);//edit the message
+				return;
 			}
+			currentPage--;
+			react.message.edit(queuePages[currentPage - 1]);//edit the message
 		}
 	}
 });
 
 //reaction removed
-client.on('messageReactionRemove', react => { 
+client.on('messageReactionRemove', async (react) => { 
 	//dont need to check if the reaction was made by a user
-
-	let arr = react.users.array();
-	if (arr[0].id == botID)//check if the reaction came from the message of the bot
+	let collection = await react.users.fetch();
+	let arr = collection.array();
+	if (arr[0].id = botID)//check if the reaction came from the message of the bot
 	{
 		if (react.emoji.name == '⏩')//page up
 		{
