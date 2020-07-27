@@ -49,30 +49,6 @@ function isURL(str)
 	return !!pattern.test(str);
 }
 
-//returns all the users there are in the same voiceChannel as the bot
-function getBotVoiceChannel()
-{
-	let arr = client.channels.array();//get all channels on the server
-	for (let i = 0; i < arr.length; i++)//cycle through each channel
-	{
-		if (arr[i].type == "voice")//checks if it is a voiceChannel
-		{
-			let members = arr[i].members.array();//get the users in the voiceChannel
-			if (members.length >= 1)//checks if the voiceChannel has more the one user connected
-			{
-				for (let j = 0; j < members.length; j++)//cycle through each user in the voiceChannel
-				{
-					if (members[j].user.id == botID)//check if one of the users in the voiceChannel is bot
-					{
-						return members;//returns all the users there are in the same voiceChannel as the bot
-					}
-				}
-			}
-		}
-	}
-	return undefined;
-}
-
 //shuffle the queue
 function suffle()
 {
@@ -464,7 +440,7 @@ client.on('message', async (msg) => {
 							queuePages = [];
 							currentPage = 1
 							
-							msg.channel.send(`Música parada, modo CS **desativado** e fila esvaziada: **${len}** músicas removidas.`);
+							msg.channel.send(`Música parada e fila esvaziada: **${len}** músicas removidas.`);
 							return;
 						}
 						else
@@ -691,7 +667,6 @@ client.on('message', async (msg) => {
 						let embed = new Discord.MessageEmbed();
 						embed.setTitle(`Ajuda:`);
 						embed.setColor([221, 76, 7]);
-						embed.addField(`${prefix}cs:`, `Como usar: **${prefix}cs** | **${prefix}cs <0-off|1-on>**.`);
 						embed.addField(`${prefix}play:`, `Como usar: **${prefix}play <link/nome>**.`);
 						embed.addField(`${prefix}stop:`, `Como usar: **${prefix}stop**.`);
 						embed.addField(`${prefix}cancel:`, `Como usar: **${prefix}cancel**.`);
